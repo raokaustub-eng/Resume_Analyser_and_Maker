@@ -1,0 +1,3 @@
+Junior Data Analyst
+
+We are looking for a curious early-career analyst who can use Python and SQL to clean, explore, and summarize data. The role involves building dashboards, communicating findings to non-technical partners, and collaborating with a team using Git. Strong problem solving, attention to detail, and clear communication are valued. Experience with Excel or Power BI is useful.

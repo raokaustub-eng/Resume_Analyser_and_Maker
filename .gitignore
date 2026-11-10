@@ -1,0 +1,11 @@
+# Local virtual environment and Python-generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local secrets and editor files
+.streamlit/secrets.toml
+.env
+.DS_Store
+.vscode/

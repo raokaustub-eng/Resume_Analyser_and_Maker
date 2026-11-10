@@ -1,0 +1,20 @@
+Maya Patel
+maya.patel@example.com | +91 98765 43210 | Pune, India
+
+Professional Summary
+Computer science student focused on practical Python tools, data analysis, and clear user experiences. Enjoys building small applications with a team and explaining technical choices to non-technical users.
+
+Education
+BSc Computer Science, Lakeside College, 2023–2026
+
+Skills
+Python, SQL, Git, Streamlit, communication, data analysis
+
+Projects
+Campus Events Dashboard | Python, Streamlit, SQL | 2025
+Built a dashboard to organize event registrations for a student club.
+Analyzed 1,200 registration records and reduced manual weekly reporting from 3 hours to 45 minutes.
+
+Experience
+Student Technology Assistant | Lakeside College | 2024–2025
+Resolved common account setup issues for students and documented repeat fixes.
