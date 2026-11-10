@@ -1,15 +1,19 @@
-# CareerCraft — Resume Analyzer and Maker
+# ResumeHub — Resume Analyzer and Maker
 
 A student mini project built with Python and Streamlit. It compares a resume with a target job description using explainable skill matching, then builds a clean, editable resume in DOCX or plain text.
 
 ## Features
 
+- Scrollable ResumeHub home page with photo-led sections, template previews, career notes, and footer navigation to the builder, analyzer, and theory pages.
 - Read text from PDF, DOCX, or TXT resumes, or accept pasted text.
 - Find skill overlap against a job description using an editable skill dictionary.
-- Show a transparent 100-point checklist and practical improvement suggestions.
-- Build a simple, single-column resume and download it as DOCX or TXT.
+- Show a transparent 100-point checklist, keyword coverage, and practical improvement suggestions.
+- Build a resume from typed text and uploaded experience, project, or certification documents; download it as DOCX or TXT.
+- Choose Classic, Modern, or Compact single-column DOCX templates.
 - Include a Theory & Demo page for the presentation and viva.
 - Process the uploaded resume in memory; the app does not intentionally save uploaded files.
+
+The home page includes sign-in and contact UI for demonstration only. No account system or mail service is configured, so the app does not collect credentials or send contact messages. Local photography is stored in `assets/` and sourced from Unsplash.
 
 ## Before making it public
 
@@ -42,11 +46,12 @@ The browser opens the local app. For a fast demo, copy the text from `sample_res
 
 | Category | Weight | Method |
 | --- | ---: | --- |
-| Job skill match | 40 | Matched skills / detected job-description skills |
-| Section coverage | 25 | Five common resume sections, five points each |
-| Achievement evidence | 15 | Action verbs and measurable number patterns |
-| Length guide | 10 | Broad word-count range, used only as a prompt |
-| Contact details | 10 | Email and phone patterns |
+| Job-description keywords | 20 | TF-IDF-weighted coverage across filtered terms |
+| Target skills | 25 | Matched skills / detected job-description skills |
+| Section completeness | 20 | Five common resume sections, four points each |
+| Formatting checks | 15 | Length guide, contact details, and date patterns |
+| Action verbs | 10 | Two points per distinct detected verb, up to five verbs |
+| Measurable results | 10 | Number with a common result unit |
 
 The score is an educational checklist. It is not an ATS score or a hiring prediction. The built-in dictionary is intentionally small; edit `SKILL_ALIASES` in `resume_analyzer.py` to extend it.
 
@@ -72,7 +77,7 @@ Each person should understand the overall flow and be ready to explain their par
 
 Use only after your group has actually built and presented the app. Adjust the tools and outcomes to match your contribution:
 
-**CareerCraft — Resume Analyzer and Maker | Python, Streamlit, PDF/DOCX processing**
+**ResumeHub — Resume Analyzer and Maker | Python, Streamlit, PDF/DOCX processing**
 
 - Built a Python web app that compares resume content with a target job description using explainable skill matching and a weighted feedback checklist.
 - Developed an ATS-friendly resume builder that exports user-provided content to editable DOCX and plain-text formats.

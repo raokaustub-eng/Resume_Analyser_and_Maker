@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import math
 import re
+from collections import Counter
 from collections.abc import Iterable
 
 from docx import Document
@@ -59,6 +61,20 @@ ACTION_VERBS = (
     "managed", "delivered", "organized", "resolved", "streamlined",
 )
 
+STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
+    "is", "it", "of", "on", "or", "our", "that", "the", "their", "this",
+    "to", "we", "with", "will", "you", "your",
+})
+DATE_PATTERN = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\s+(?:19|20)\d{2}\b|"
+    r"\b(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:(?:19|20)?\d{2}|present|current)\b|"
+    r"\b(?:19|20)\d{2}\b",
+    re.IGNORECASE,
+)
+
 
 def extract_text(filename: str, file_bytes: bytes) -> str:
     """Read PDF, DOCX, or plain-text resume bytes without saving the file."""
@@ -98,6 +114,38 @@ def find_skills(text: str) -> list[str]:
     ]
 
 
+def rewrite_bullet(bullet: str, action_verb: str) -> str:
+    """Suggest a stronger bullet structure without inventing evidence."""
+    allowed_verbs = {
+        "built", "created", "designed", "developed", "improved", "implemented",
+        "increased", "reduced", "led", "launched", "automated", "analyzed",
+        "managed", "delivered", "organized", "resolved", "streamlined",
+    }
+    selected_verb = action_verb.strip()
+    if selected_verb.lower() not in allowed_verbs:
+        raise ValueError("Choose an action verb from the provided list.")
+
+    content = bullet.strip().lstrip("•*- ").strip()
+    if not content:
+        raise ValueError("Select a resume bullet with text first.")
+
+    content = re.sub(
+        r"^(?:(?:was|were)\s+)?(?:responsible\s+for|worked\s+(?:on|with)|"
+        r"helped\s+(?:with|to)|assisted\s+(?:with|in|on)|participated\s+in)\s+",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+    content = re.sub(
+        r"^(?:" + "|".join(re.escape(verb) for verb in ACTION_VERBS) + r")\b\s*",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+    content = content.rstrip(" .;:")
+    return f"{selected_verb[0].upper() + selected_verb[1:]} {content}; add a verified result: [verified metric]."
+
+
 def _section_presence(text: str) -> dict[str, bool]:
     lowered = text.lower()
     return {
@@ -116,6 +164,48 @@ def _readability_points(word_count: int) -> tuple[float, str]:
     return 2.0, "Length is far from the guide's broad 250–900 word range; review for useful detail and concision."
 
 
+def _tfidf_keywords(job_description: str, resume_text: str, limit: int = 16) -> tuple[list[str], list[str], list[str], float]:
+    job_tokens = [
+        token.strip(".-").lower()
+        for token in re.findall(r"[a-zA-Z0-9][a-zA-Z0-9+#.-]*", job_description)
+        if len(token.strip(".-")) > 2 and token.strip(".-").lower() not in STOP_WORDS
+    ]
+    resume_tokens = [
+        token.strip(".-").lower()
+        for token in re.findall(r"[a-zA-Z0-9][a-zA-Z0-9+#.-]*", resume_text)
+        if len(token.strip(".-")) > 2 and token.strip(".-").lower() not in STOP_WORDS
+    ]
+    if not job_tokens:
+        return [], [], [], 0.0
+
+    job_counts = Counter(job_tokens)
+    resume_terms = set(resume_tokens)
+    document_count = 2
+    ranked_terms = []
+    for term, count in job_counts.items():
+        document_frequency = 1 + (term in resume_terms)
+        inverse_document_frequency = math.log((1 + document_count) / (1 + document_frequency)) + 1
+        weight = (count / len(job_tokens)) * inverse_document_frequency
+        ranked_terms.append((term, weight))
+
+    ranked_terms.sort(key=lambda item: (-item[1], item[0]))
+    matched_terms = [item for item in ranked_terms if item[0] in resume_terms]
+    missing_terms = [item for item in ranked_terms if item[0] not in resume_terms]
+    selected_matches = matched_terms[: limit // 2]
+    selected_gaps = missing_terms[: limit - len(selected_matches)]
+    selected = selected_matches + selected_gaps
+    if len(selected) < limit:
+        selected.extend(matched_terms[len(selected_matches) : limit - len(selected)])
+    selected.sort(key=lambda item: (-item[1], item[0]))
+    keywords = [term for term, _ in selected]
+    matched = [term for term in keywords if term in resume_terms]
+    missing = [term for term in keywords if term not in resume_terms]
+    total_weight = sum(weight for _, weight in ranked_terms)
+    matched_weight = sum(weight for term, weight in ranked_terms if term in resume_terms)
+    score = 20 * matched_weight / total_weight if total_weight else 0.0
+    return keywords, matched, missing, round(score, 1)
+
+
 def analyze_resume(resume_text: str, job_description: str) -> dict:
     """Return a weighted score and evidence-based feedback for one resume."""
     resume = re.sub(r"\s+", " ", resume_text).strip()
@@ -129,33 +219,42 @@ def analyze_resume(resume_text: str, job_description: str) -> dict:
     target_skills = find_skills(jd)
     matched = [skill for skill in target_skills if skill in resume_skills]
     missing = [skill for skill in target_skills if skill not in resume_skills]
-    skill_points = round(40 * len(matched) / len(target_skills), 1) if target_skills else 0.0
+    skill_points = round(25 * len(matched) / len(target_skills), 1) if target_skills else 0.0
+    keywords, matched_keywords, missing_keywords, keyword_points = _tfidf_keywords(jd, resume)
 
     sections = _section_presence(resume)
-    section_points = round(25 * sum(sections.values()) / len(sections), 1)
+    section_points = round(20 * sum(sections.values()) / len(sections), 1)
 
     lowered = resume.lower()
     action_hits = sorted({verb for verb in ACTION_VERBS if re.search(r"(?<![a-z])" + verb + r"(?![a-z])", lowered)})
     has_numbers = re.search(r"\b\d+(?:[.,]\d+)?\s?(?:%|percent|k|m|users|customers|hours|days|weeks|months|years)\b|\b\d+%", lowered) is not None
-    achievement_points = (7.5 if action_hits else 0.0) + (7.5 if has_numbers else 0.0)
+    action_points = min(10.0, round(len(action_hits) * 2.0, 1))
+    measurable_points = 10.0 if has_numbers else 0.0
 
     word_count = len(re.findall(r"\b[\w+#.-]+\b", resume))
     readability_points, readability_note = _readability_points(word_count)
     has_email = re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", resume, re.I) is not None
     has_phone = re.search(r"(?:\+?\d[\d .()\-]{7,}\d)", resume) is not None
-    contact_points = (5.0 if has_email else 0.0) + (5.0 if has_phone else 0.0)
+    has_dates = DATE_PATTERN.search(resume) is not None
+    length_points = readability_points / 2
+    contact_points = (2.5 if has_email else 0.0) + (2.5 if has_phone else 0.0)
+    date_points = 5.0 if has_dates else 0.0
+    formatting_points = length_points + contact_points + date_points
 
     categories = [
-        {"name": "Job skill match", "score": skill_points, "max": 40, "detail": f"{len(matched)} of {len(target_skills)} skills detected from the job description are also detected in the resume." if target_skills else "No skills from the guide's small built-in dictionary were detected in the job description."},
-        {"name": "Section coverage", "score": section_points, "max": 25, "detail": f"{sum(sections.values())} of {len(sections)} common sections detected."},
-        {"name": "Achievement evidence", "score": achievement_points, "max": 15, "detail": f"{len(action_hits)} distinct action verbs and {'some' if has_numbers else 'no'} measurable number evidence detected."},
-        {"name": "Length guide", "score": readability_points, "max": 10, "detail": f"{word_count} words. {readability_note}"},
-        {"name": "Contact details", "score": contact_points, "max": 10, "detail": f"Email {'found' if has_email else 'not detected'}; phone {'found' if has_phone else 'not detected'}."},
+        {"name": "Job-description keywords", "score": keyword_points, "max": 20, "detail": f"{len(matched_keywords)} of {len(keywords)} displayed terms overlap; the score uses TF-IDF-weighted coverage across the full filtered job-description vocabulary."},
+        {"name": "Target skills", "score": skill_points, "max": 25, "detail": f"{len(matched)} of {len(target_skills)} listed skills detected in both documents." if target_skills else "No skills from the small built-in dictionary were detected in the job description."},
+        {"name": "Section completeness", "score": section_points, "max": 20, "detail": f"{sum(sections.values())} of {len(sections)} common sections detected; each section contributes four points."},
+        {"name": "Formatting checks", "score": formatting_points, "max": 15, "detail": f"Length {length_points:g}/5 ({word_count} words; {readability_note.lower()}); contact {contact_points:g}/5 (email {'found' if has_email else 'not found'}, phone {'found' if has_phone else 'not found'}); date format {date_points:g}/5 ({'year/date pattern found' if has_dates else 'no recognizable year/date found'})."},
+        {"name": "Action verbs", "score": action_points, "max": 10, "detail": f"{len(action_hits)} distinct verbs detected ({', '.join(action_hits) if action_hits else 'none'}); two points per detected verb, capped at ten."},
+        {"name": "Measurable results", "score": measurable_points, "max": 10, "detail": f"{'A number with a common result unit was detected.' if has_numbers else 'No number with a common result unit was detected; add one only when you can verify it.'}"},
     ]
 
     recommendations: list[str] = []
     if not target_skills:
         recommendations.append("The job description did not contain skills from the built-in dictionary. Add explicit skill terms to the job description or extend SKILL_ALIASES in resume_analyzer.py.")
+    if missing_keywords:
+        recommendations.append("Review these job-description keywords and add only those you can support with real experience: " + ", ".join(missing_keywords[:8]) + ".")
     if missing:
         recommendations.append("If you truly have these qualifications, add evidence for: " + ", ".join(missing) + ". Never add a skill you cannot discuss or demonstrate.")
     absent_sections = [name for name, present in sections.items() if not present]
@@ -167,6 +266,8 @@ def analyze_resume(resume_text: str, job_description: str) -> dict:
         recommendations.append("Where accurate, quantify outcomes (for example, time saved, records processed, or team size). Do not invent metrics.")
     if not has_email or not has_phone:
         recommendations.append("Check that your preferred email and phone number are easy to find at the top of the resume.")
+    if not has_dates:
+        recommendations.append("Add clear dates to education, projects, or experience where relevant (for example, 2024–2025 or Jan 2025).")
     if word_count > 900:
         recommendations.append("Review for repetition and keep the most relevant evidence for this particular role.")
     if not recommendations:
@@ -178,6 +279,9 @@ def analyze_resume(resume_text: str, job_description: str) -> dict:
         "categories": categories,
         "matched_skills": matched,
         "missing_skills": missing,
+        "keywords": keywords,
+        "matched_keywords": matched_keywords,
+        "missing_keywords": missing_keywords,
         "resume_skills": resume_skills,
         "target_skills": target_skills,
         "sections": sections,
@@ -185,4 +289,7 @@ def analyze_resume(resume_text: str, job_description: str) -> dict:
         "word_count": word_count,
         "action_verbs": action_hits,
         "has_numbers": has_numbers,
+        "has_email": has_email,
+        "has_phone": has_phone,
+        "has_dates": has_dates,
     }
